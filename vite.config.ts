@@ -1,12 +1,15 @@
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
+import { fileURLToPath, URL } from 'node:url';
 
 // https://vitejs.dev/config/
 export default defineConfig({
   plugins: [react()],
-  base: '/', // Ensure this is set to the root path or your subdirectory
-  optimizeDeps: {
-    exclude: ['lucide-react'],
+  base: './', // Use relative paths
+  resolve: {
+    alias: {
+      '@': fileURLToPath(new URL('./src', import.meta.url))
+    }
   },
   build: {
     outDir: 'dist',
@@ -14,10 +17,9 @@ export default defineConfig({
     emptyOutDir: true,
     rollupOptions: {
       output: {
-        manualChunks: {
-          react: ['react', 'react-dom', 'react-router-dom'],
-          vendor: ['@supabase/supabase-js', 'framer-motion', 'zustand'],
-        },
+        entryFileNames: 'assets/[name]-[hash].js',
+        chunkFileNames: 'assets/[name]-[hash].js',
+        assetFileNames: 'assets/[name]-[hash][extname]',
       },
     },
   },
@@ -25,4 +27,8 @@ export default defineConfig({
     port: 3000,
     strictPort: true,
   },
+  preview: {
+    port: 3000,
+    strictPort: true,
+  }
 });
