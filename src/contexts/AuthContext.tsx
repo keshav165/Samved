@@ -2,85 +2,129 @@ import { createContext, useContext, ReactNode, useState, useEffect } from 'react
 import { User } from '@supabase/supabase-js';
 import { supabase } from '../lib/supabase';
 
-type UserWithRole = User & {
-  user_metadata?: {
-    name?: string;
-    role?: string;
-  };
+// Define our user metadata type
+type UserMetadata = {
+  name?: string;
+  role?: string;
+  [key: string]: any;
 };
 
+// Define the shape of the user object we'll use in our app
+interface AppUser {
+  id: string;
+  email?: string;
+  user_metadata?: UserMetadata;
+}
+
 type AuthContextType = {
-  user: UserWithRole | null;
+  user: AppUser | null;
   loading: boolean;
   isAuthenticated: boolean;
+};
+
+// Helper function to safely extract user data
+const extractUserData = (user: User | null): AppUser | null => {
+  if (!user) return null;
+  
+  // Safely access user properties with type assertions
+  const userId = (user as any).id || '';
+  const userEmail = (user as any).email || undefined;
+  const userMetadata = (user as any).user_metadata || {};
+  
+  return {
+    id: userId,
+    email: userEmail,
+    user_metadata: userMetadata
+  };
 };
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export const AuthProvider = ({ children }: { children: ReactNode }) => {
-  const [user, setUser] = useState<UserWithRole | null>(null);
+  const [user, setUser] = useState<AppUser | null>(null);
   const [loading, setLoading] = useState(true);
   const isAuthenticated = !!user;
 
-  const fetchUserWithRole = async (user: User | null) => {
-    if (!user) return null;
-
+  // Fetch user role from profiles table if not in user_metadata
+  const fetchUserRole = async (userId: string): Promise<string | null> => {
     try {
-      // First check if we have the role in user_metadata
-      if (user.user_metadata?.role) {
-        return user;
-      }
-
-      // If not, fetch from profiles table
       const { data: profile, error } = await supabase
         .from('profiles')
         .select('role')
-        .eq('id', user.id)
+        .eq('id', userId)
         .single();
 
       if (error) throw error;
-
-      // Update user_metadata with the role from profiles
-      const updatedUser = {
-        ...user,
-        user_metadata: {
-          ...user.user_metadata,
-          role: profile.role
-        }
-      };
-
-      return updatedUser;
+      return (profile as any)?.role || null;
     } catch (error) {
       console.error('Error fetching user role:', error);
-      return user; // Return the original user if there's an error
+      return null;
+    }
+  };
+
+  // Process user data and fetch role if needed
+  const processUserData = async (user: User | null): Promise<AppUser | null> => {
+    if (!user) return null;
+    
+    const userData = extractUserData(user);
+    if (!userData) return null;
+
+    // If we already have the role, return the user data as is
+    if (userData.user_metadata?.role) {
+      return userData;
+    }
+
+    // Otherwise, fetch the role from the profiles table
+    const role = await fetchUserRole(userData.id);
+    if (role) {
+      return {
+        ...userData,
+        user_metadata: {
+          ...userData.user_metadata,
+          role
+        }
+      };
+    }
+
+    return userData;
+  };
+
+  // Handle auth state changes
+  const handleAuthChange = async (session: any) => {
+    try {
+      if (session?.user) {
+        const userData = await processUserData(session.user);
+        setUser(userData);
+      } else {
+        setUser(null);
+      }
+    } catch (error) {
+      console.error('Error handling auth change:', error);
+      setUser(null);
+    } finally {
+      setLoading(false);
     }
   };
 
   useEffect(() => {
-    // Check active sessions and set the user
-    const getSession = async () => {
-      const { data: { session } } = await supabase.auth.getSession();
-      if (session?.user) {
-        const userWithRole = await fetchUserWithRole(session.user);
-        setUser(userWithRole);
-      } else {
+    // Initial session check
+    const getInitialSession = async () => {
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        await handleAuthChange(session);
+      } catch (error) {
+        console.error('Error getting initial session:', error);
         setUser(null);
+        setLoading(false);
       }
-      setLoading(false);
     };
 
-    getSession();
+    getInitialSession();
 
-    // Listen for changes in authentication state
+    // Subscribe to auth state changes
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
-      async (event: string, session: { user: User | null } | null) => {
-        if (session?.user) {
-          const userWithRole = await fetchUserWithRole(session.user);
-          setUser(userWithRole);
-        } else {
-          setUser(null);
-        }
-        setLoading(false);
+      async (_event, session) => {
+        await handleAuthChange(session);
       }
     );
 
