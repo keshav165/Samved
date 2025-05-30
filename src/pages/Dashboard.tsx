@@ -170,7 +170,9 @@ const Dashboard: React.FC = () => {
                   <h2 className="font-semibold text-neutral-800">
                     {user?.user_metadata?.name || user?.email || 'User'}
                   </h2>
-                  <p className="text-sm text-neutral-500">Student</p>
+                  <p className="text-sm text-neutral-500 capitalize">
+                    {user?.user_metadata?.role || 'student'}
+                  </p>
                 </div>
               </div>
               
